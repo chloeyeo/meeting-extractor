@@ -1,0 +1,179 @@
+{
+  "action_items": [
+    {
+      "owner": "준호",
+      "task": "샘플 쿼리 확인 및 백엔드 필터 PR 올리기",
+      "deadline": "금요일 오전",
+      "confidence": "high",
+      "evidence_quote": "제가 오늘 안에 샘플 쿼리를 확인해보겠습니다. ... 금요일 오전까지 백엔드 필터 PR을 올리겠습니다.",
+      "notes": ""
+    },
+    {
+      "owner": "서연",
+      "task": "목요일 오후까지 프론트 화면 붙이기",
+      "deadline": "목요일 오후",
+      "confidence": "high",
+      "evidence_quote": "서연님이 목요일 오후까지 프론트 화면을 붙이고, 금요일에는 같이 스모크 테스트를 합시다.",
+      "notes": ""
+    },
+    {
+      "owner": "해린",
+      "task": "고객 안내 문구 초안 작성",
+      "deadline": "금요일 점심 전",
+      "confidence": "high",
+      "evidence_quote": "제가 초안을 작성하겠습니다. 마감은 금요일 점심 전까지로 하겠습니다.",
+      "notes": ""
+    },
+    {
+      "owner": "도윤",
+      "task": "다음 스프린트 후보 목록에 동의어 검색, 익명화된 검색 로그, CS 모드, 금액 범위 검색 기록",
+      "deadline": "unknown",
+      "confidence": "medium",
+      "evidence_quote": "그러면 제가 다음 스프린트 후보 목록에 동의어 검색, 익명화된 검색 로그, CS 모드, 금액 범위 검색을 적어두겠습니다.",
+      "notes": ""
+    }
+  ],
+  "deferred_items": [
+    {
+      "item": "동의어 검색",
+      "reason": "이번 베타에 필요 없다고 판단",
+      "evidence_quote": "다만 '점심'이라고 검색했을 때 title에 lunch가 들어간 영수증을 찾고 싶다는 이야기가 있었는데, 그건 동의어 처리가 필요해서 이번에는 빼는 게 맞습니다."
+    },
+    {
+      "item": "CS 모드",
+      "reason": "범위가 커서 이번 주에는 하지 않기로 결정",
+      "evidence_quote": "내부 CS 모드는 권한도 들어가고 범위가 커집니다. 이번 주에는 하지 않는 게 좋겠습니다."
+    },
+    {
+      "item": "검색 로그",
+      "reason": "개인정보 이슈로 인해 이번 베타에서는 제외",
+      "evidence_quote": "하지만 개인정보 이슈가 있으니까 검색어 원문을 그대로 저장하면 안 됩니다. 저는 이번 베타에서는 로그를 안 넣고, 다음 스프린트에서 익명화 설계를 먼저 하는 게 맞다고 봅니다."
+    },
+    {
+      "item": "금액 범위 검색",
+      "reason": "이번 베타에서 제외 결정",
+      "evidence_quote": "그리고 금액 범위 검색은 이번 베타에서 제외합니다. 정확히 일치만 해요."
+    },
+    {
+      "item": "자연어 날짜 검색",
+      "reason": "이번에는 하지 않기로 결정",
+      "evidence_quote": "아니요. 이번에는 자연어 날짜 검색은 하지 않습니다. 사용자가 날짜를 직접 입력하는 것으로 제한합시다."
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "금액 검색은 정확히 일치만 할지, 범위 검색까지 할지",
+      "raised_by": "준호",
+      "evidence_quote": "금액 검색은 정확히 일치만 할지, 범위 검색까지 할지는 아직 정해야 합니다."
+    },
+    {
+      "question": "날짜 검색 입력 형식을 YYYY-MM-DD로 할지, 달력 컴포넌트를 쓸지",
+      "raised_by": "서연",
+      "evidence_quote": "다만 날짜 검색 입력 형식을 YYYY-MM-DD로 할지, 달력 컴포넌트를 쓸지는 정해야 합니다."
+    }
+  ],
+  "validation": [
+    {
+      "task": "샘플 쿼리 확인 및 백엔드 필터 PR 올리기",
+      "owner": "준호",
+      "status": "verified",
+      "checks": {
+        "evidence_quote_존재": {
+          "passed": true,
+          "detail": "원문에서 앞뒤 구절 모두 확인됨"
+        },
+        "deadline_원문_확인": {
+          "passed": true,
+          "detail": "원문에서 키워드 확인됨: ['금요일', '오전']"
+        },
+        "owner_발화자_확인": {
+          "passed": true,
+          "detail": "발화자 목록에서 확인됨: '준호'"
+        }
+      },
+      "llm_confidence": "high"
+    },
+    {
+      "task": "목요일 오후까지 프론트 화면 붙이기",
+      "owner": "서연",
+      "status": "verified",
+      "checks": {
+        "evidence_quote_존재": {
+          "passed": true,
+          "detail": "원문에서 앞뒤 구절 모두 확인됨"
+        },
+        "deadline_원문_확인": {
+          "passed": true,
+          "detail": "원문에서 키워드 확인됨: ['목요일', '오후']"
+        },
+        "owner_발화자_확인": {
+          "passed": true,
+          "detail": "발화자 목록에서 확인됨: '서연'"
+        }
+      },
+      "llm_confidence": "high"
+    },
+    {
+      "task": "고객 안내 문구 초안 작성",
+      "owner": "해린",
+      "status": "verified",
+      "checks": {
+        "evidence_quote_존재": {
+          "passed": true,
+          "detail": "원문에서 앞뒤 구절 모두 확인됨"
+        },
+        "deadline_원문_확인": {
+          "passed": true,
+          "detail": "원문에서 키워드 확인됨: ['금요일', '점심']"
+        },
+        "owner_발화자_확인": {
+          "passed": true,
+          "detail": "발화자 목록에서 확인됨: '해린'"
+        }
+      },
+      "llm_confidence": "high"
+    },
+    {
+      "task": "다음 스프린트 후보 목록에 동의어 검색, 익명화된 검색 로그, CS 모드, 금액 범위 검색 기록",
+      "owner": "도윤",
+      "status": "verified",
+      "checks": {
+        "evidence_quote_존재": {
+          "passed": true,
+          "detail": "원문에서 앞뒤 구절 모두 확인됨"
+        },
+        "deadline_원문_확인": {
+          "passed": true,
+          "detail": "deadline이 unknown으로 명시됨 (검증 불필요)"
+        },
+        "owner_발화자_확인": {
+          "passed": true,
+          "detail": "발화자 목록에서 확인됨: '도윤'"
+        }
+      },
+      "llm_confidence": "medium"
+    }
+  ],
+  "smoke_checks": [
+    {
+      "label": "액션 아이템 4개 이상",
+      "passed": true
+    },
+    {
+      "label": "보류 항목 3개 이상",
+      "passed": true
+    },
+    {
+      "label": "미해결 질문 1개 이상",
+      "passed": true
+    },
+    {
+      "label": "모든 액션 아이템에 evidence_quote 존재",
+      "passed": true
+    },
+    {
+      "label": "unknown deadline 항목에 low confidence 부여",
+      "passed": true
+    }
+  ]
+}

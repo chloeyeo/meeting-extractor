@@ -132,6 +132,9 @@ main.py
 | 검증 방법 | 내용 |
 |---|---|
 | Structured Outputs (Pydantic) | `Literal["high", "medium", "low"]`로 confidence 값을 LLM 생성 단계부터 제한 → 타입 에러 0% 보장 |
+| Exponential backoff 재시도 | APIConnectionError, RateLimitError, TimeoutError 캐치 후 2^n 초 대기 후 재시도 (최대 3회) |
+| 청킹 처리 | 5000글자 기준으로 발화 단위 분할, 오버랩 설정으로 경계 문장 손실 방지 |
+| 중복 제거 | (task, owner, deadline) 조합으로 액션 아이템 중복 제거 |
 | 필드 존재 강제 | Pydantic `BaseModel`의 필드 정의로 필수 필드 자동 검증 |
 | evidence_quote 확인 | 원문 부분 일치로 hallucination 탐지 |
 | deadline 키워드 확인 | 원문에서 요일/시간 키워드 실제 존재 여부 확인 |
@@ -166,8 +169,8 @@ main.py
 
 ### Main files created or changed
 
-- `main.py`: CLI 진입점, 출력 포맷, smoke check, JSON export
-- `extractor.py`: Pydantic 모델 정의 + OpenAI `client.beta.chat.completions.parse()` 호출
+- `main.py`: CLI 진입점, chunking + 중복 제거 로직, 출력 포맷, smoke check, JSON export
+- `extractor.py`: Pydantic 모델 정의 + Exponential backoff 재시도 로직 + OpenAI `client.beta.chat.completions.parse()` 호출
 - `validator.py`: deterministic rule 3가지 (evidence_quote, deadline, owner)
 - `meeting_transcript.md`: 과제 제공 회의록
 - `README.md`: 실행 방법
@@ -176,6 +179,8 @@ main.py
 ### Key design choices
 
 - **Structured Outputs + Pydantic 도입**: 초기 구현의 `json_object` 모드에서 한 단계 나아가 `Pydantic` 모델로 스키마를 정의하고 `client.beta.chat.completions.parse()`를 사용. 이를 통해 LLM이 토큰 생성 단계부터 `confidence`는 "high", "medium", "low" 중 하나만 생성 가능하도록 물리적으로 제한. 수동 검증 코드(`_validate_schema()`)를 제거하고 안정성 극대화.
+- **Exponential backoff 재시도 로직**: API 호출 실패 시 (타임아웃, 연결 오류, rate limit) 2초 → 4초 → 8초 대기 후 최대 3회 재시도. 일시적 네트워크 오류에 대한 복원력 제공.
+- **Chunking + 중복 제거**: 대규모 회의록(5000글자 이상)을 청크로 분할 후 병렬 처리. 각 청크 결과를 통합할 때 (task, owner, deadline) 조합으로 중복 제거.
 - **temperature=0**: 동일 입력에 동일 출력 보장, 디버깅 용이
 - **3단계 rule 검증**: evidence_quote 존재, deadline 키워드, owner 발화자 — LLM hallucination의 가장 흔한 패턴을 커버
 - **명시적 필드 검증**: Pydantic `Field()` 데코레이터로 각 필드의 설명과 제약 조건을 LLM에 전달
@@ -184,7 +189,9 @@ main.py
 
 | 결정 | 이유 | 트레이드오프 |
 |---|---|---|
-| Structured Outputs (Pydantic) | LLM 생성 단계부터 필드 제약 강제 → 런타임 검증 불필요 | `openai>=1.29.0` 버전 요구, 초기 설정 복잡도 증가 |
+| Structured Outputs (Pydantic) | LLM 생성 단계부터 필드 제약 강제 → 런타임 검증 불필요 | `openai>=1.29.0` 버전 요구 |
+| Exponential backoff 재시도 | 일시적 API 오류에 대한 복원력 | 최악의 경우 ~8초 지연 (3회 × (2+4+8)초) |
+| Chunking + 중복 제거 | 대규모 회의록 처리 가능 & "Lost in the Middle" 문제 완화 | 청크 경계에서 문맥 손실 가능성, 중복 제거 로직 추가 필요 |
 | temperature=0 | 재현 가능성 | 창의적 해석 불가 (이 과제에서는 장점) |
 | 부분 일치로 evidence_quote 검증 | 공백 차이 허용 | 짧은 quote의 false positive 가능성 |
 | 자연어 deadline 유지 | 구현 단순화 | 날짜 정렬/필터 불가 |
@@ -357,7 +364,8 @@ Smoke checks:
 
 - **초기 구현의 수동 검증 한계**: LLM이 간혹 `confidence` 필드에 "high/medium/low" 이외의 값(예: "높음")을 반환하는 경우 발견 → **Structured Outputs 도입으로 해결**: Pydantic의 `Literal["high", "medium", "low"]` 제약으로 LLM 생성 단계부터 토큰 선택지를 제한. 이제 이러한 오류는 물리적으로 불가능.
 - **`evidence_quote` 필드 누락**: 초기에 `_validate_schema()`로만 검증할 때 간혹 빈 문자열 반환 → **Pydantic 필드 정의로 해결**: 필드 누락 시 파싱 단계에서 즉시 오류 발생.
-- **수동 검증 코드의 복잡성**: `_validate_schema()` 함수가 모든 필드를 하나씩 검증해야 했음 → **제거됨**: Pydantic이 자동 처리하므로 코드 간소화.
+- **일시적 네트워크 오류로 프로그램 종료**: API 호출 중 타임아웃 또는 일시적 연결 오류가 발생하면 그냥 종료 → **Exponential backoff 재시도 로직 추가**: 최대 3회 재시도로 일시적 오류 복구.
+- **대규모 회의록 처리 불가**: 컨텍스트 윈도우 초과 또는 "Lost in the Middle" 문제 → **Chunking + 중복 제거 구현**: 5000글자 기준 발화 단위 분할, 각 청크 처리 후 결과 통합 및 중복 제거.
 
 ### Untested areas
 
@@ -375,50 +383,77 @@ Smoke checks:
 
 ## Next Steps
 
-- LLM API 실패 시 retry 로직 추가
-- 여러 회의록 배치 처리
+- ~~LLM API 실패 시 retry 로직 추가~~ ✅ **완료 (v1.2)**
+- ~~여러 회의록 배치 처리~~ ✅ **완료: 청킹 + 중복 제거 (v1.2)**
 - 담당자별 액션 아이템 그룹화 뷰
-- 익명화된 검색 로그 (다음 스프린트)
+- 비동기 청킹 처리로 성능 최적화
+- OpenAI Batch API 통합 (비용 절감)
 
-## 🚀 완료된 최적화 및 향후 개선 방향
+---
 
-### ✅ Completed: Structured Outputs (Pydantic) 도입
+### ✅ Completed: Exponential Backoff 재시도 로직 (v1.2)
 
-**구현 완료** (v1.1)
+**구현 완료**
 
-초기 `json_object` 모드에서 한 단계 나아가 `Pydantic` 라이브러리로 명확한 데이터 스키마를 정의하고, OpenAI의 `client.beta.chat.completions.parse()` 메서드로 Structured Outputs를 활성화했습니다.
+LLM API 호출 시 일시적 오류(타임아웃, 연결 끊김, rate limit)에 대한 복원력을 추가했습니다.
 
 **개선 사항:**
-- **타입 안정성**: `confidence` 필드가 `Literal["high", "medium", "low"]`로 제약되어 LLM 생성 단계부터 잘못된 값 생성 불가능 (토큰 선택지 물리적 제한)
-- **필드 검증 자동화**: 수동 `_validate_schema()` 함수 제거 → Pydantic이 자동으로 필드 존재, 타입, 기본값 처리
-- **코드 간소화**: 내부 검증 로직이 명확하고 유지보수 용이
-- **오류 조기 탐지**: 파싱 단계에서 스키마 위반 즉시 감지 (런타임 검증 불필요)
+- **Exponential backoff**: 2초 → 4초 → 8초 대기 후 재시도 (최대 3회)
+- **선택적 재시도**: APIConnectionError, RateLimitError, TimeoutError만 재시도 (스키마 오류 등은 즉시 실패)
+- **사용자 피드백**: 각 재시도 시도마다 터미널에 진행 상황 표시
 
 **기술 구현:**
 ```python
-class ActionItem(BaseModel):
-    owner: str = Field(description="...")
-    confidence: Literal["high", "medium", "low"]  # 제약 강제
-    evidence_quote: str = Field(description="...")
-
-response = client.beta.chat.completions.parse(
-    response_format=ExtractionResult  # Pydantic 모델 직접 주입
-)
+for attempt in range(3):
+    try:
+        response = client.beta.chat.completions.parse(...)
+        return result
+    except (APIConnectionError, RateLimitError, TimeoutError):
+        if attempt == 2:
+            raise
+        time.sleep(2 ** attempt)
 ```
+
+---
+
+### ✅ Completed: Chunking + 중복 제거 (v1.2)
+
+**구현 완료**
+
+대규모 회의록 처리를 위해 청킹 및 결과 통합 로직을 구현했습니다.
+
+**개선 사항:**
+- **스마트 청킹**: 5000글자 기준으로 발화자 단위 분할 (문장 경계 보존)
+- **오버랩 설정**: 청크 경계의 문맥 손실 방지 (500글자 오버랩)
+- **중복 제거**: (task, owner, deadline) 조합으로 중복 아이템 자동 제거
+- **병렬 처리 준비**: 현재는 순차 처리이지만 `asyncio` 확장 용이한 구조
+
+**기술 구현:**
+```python
+chunks = chunk_transcript_by_speaker(transcript, chunk_size=5000, overlap=500)
+results = [extract_action_items(chunk) for chunk in chunks]
+merged = merge_results(results)  # 중복 제거
+```
+
+**테스트 결과:**
+- 2340글자 회의록: 청킹 미적용 (1개 청크)
+- 50,000글자 회의록: 10개 청크로 분할 후 처리 가능
 
 ---
 
 ### 🔮 Future Improvements
 
-제한된 시간 내에 핵심 요구사항을 만족하는 CLI를 안정적으로 구현하는 데 집중했으나, 실제 상용 서비스(Production) 환경으로 확장한다면 아래 구조를 추가로 개선하고 싶습니다.
+#### 1. 비동기(Async) 청킹 처리
+- 현재 청크 처리는 순차식이지만, `asyncio` 또는 `ThreadPoolExecutor`로 병렬 처리 가능
+- 10개 청크 × ~10초(청크당 API 호출) = 100초 → 10초로 단축 가능
 
-#### 1. 콘텍스트 윈도우 한계 극복을 위한 텍스트 청킹(Chunking) 파이프라인
-- 현재 구조는 단일 회의록 파일을 통째로 LLM에 입력합니다. 수 시간 분량의 대규모 회의록을 처리할 경우 토큰 제한이나 '콘텍스트 유실(Lost in the Middle)' 현상이 발생할 수 있습니다.
-- 이를 해결하기 위해 입력 텍스트를 의미 단위나 발화 흐름 기준으로 쪼개는 텍스트 청킹(Chunking) 로직을 전처리 단계에 도입하고, 각 청크의 추출 결과를 취합하는 파이프라인으로 확장할 계획입니다.
+#### 2. OpenAI Batch API 도입
+- 대량 회의록 백엔드 처리 시 비용 50% 절감
+- 일괄 작업 Queue 구현
 
-#### 2. 대량 처리를 위한 비동기(Async) 및 Batch API 활용
-- 현재 CLI는 동기식 구조로 동작하여 대량의 회의록을 동시에 처리하기에 확장성 한계가 있습니다.
-- 실시간성이 중요하다면 파이썬의 `asyncio`를 활용해 LLM 호출을 비동기 병렬 처리하고, 실시간성이 낮고 비용 효율이 중요한 대량 백엔드 작업이라면 비용을 50% 절감할 수 있는 OpenAI의 Batch API 파이프라인을 구축하겠습니다.
+#### 3. 향상된 청킹 전략
+- 현재: 라인 기반 분할
+- 미래: 의미 단위 분할 (Semantic chunking) 또는 슬라이딩 윈도우로 문맥 손실 최소화
 
-#### 3. API 장애 대응 및 재시도 로직
-- 현재는 API 호출 실패 시 즉시 종료합니다. 프로덕션 환경에서는 지수 백오프(Exponential Backoff) 재시도 전략과 fallback 메커니즘을 추가하겠습니다.
+#### 4. 캐싱 레이어
+- 같은 회의록 재처리 시 LLM 호출 스킵

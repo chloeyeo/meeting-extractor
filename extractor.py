@@ -4,13 +4,15 @@ LLM을 사용해 회의록에서 액션 아이템, 보류 항목, 미해결 질�
 """
 
 import os
+import time
 from typing import Literal
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import APIConnectionError, OpenAI, RateLimitError
 from pydantic import BaseModel, Field
 
 load_dotenv()
+
 
 
 class ActionItem(BaseModel):
@@ -65,7 +67,7 @@ USER_PROMPT_TEMPLATE = """다음 회의록을 분석해 액션 아이템, 보류
 def extract_action_items(transcript: str) -> dict:
     """
     OpenAI gpt-4o를 사용해 회의록에서 구조화된 정보를 추출합니다.
-    Structured Outputs로 confidence를 물리적으로 제한합니다.
+    Structured Outputs로 confidence를 물리적으로 제한하고, 재시도 로직으로 일시적 오류 대응합니다.
 
     Args:
         transcript: 회의록 전체 텍스트
@@ -74,7 +76,7 @@ def extract_action_items(transcript: str) -> dict:
         action_items, deferred_items, open_questions를 포함한 dict
 
     Raises:
-        Exception: API 호출 실패 시
+        Exception: API 호출 최종 실패 시
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -84,27 +86,38 @@ def extract_action_items(transcript: str) -> dict:
         )
 
     client = OpenAI(api_key=api_key)
-
     user_prompt = USER_PROMPT_TEMPLATE.format(transcript=transcript)
 
-    response = client.beta.chat.completions.parse(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        response_format=ExtractionResult,
-        temperature=0,
-    )
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            response = client.beta.chat.completions.parse(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format=ExtractionResult,
+                temperature=0,
+            )
 
-    parsed_result = response.choices[0].message.parsed
-    if parsed_result is None:
-        raise ValueError("LLM 파싱 실패")
+            parsed_result = response.choices[0].message.parsed
+            if parsed_result is None:
+                raise ValueError("LLM 파싱 실패")
 
-    return {
-        "action_items": [item.model_dump() for item in parsed_result.action_items],
-        "deferred_items": [item.model_dump() for item in parsed_result.deferred_items],
-        "open_questions": [item.model_dump() for item in parsed_result.open_questions],
-    }
+            return {
+                "action_items": [item.model_dump() for item in parsed_result.action_items],
+                "deferred_items": [item.model_dump() for item in parsed_result.deferred_items],
+                "open_questions": [item.model_dump() for item in parsed_result.open_questions],
+            }
+
+        except (APIConnectionError, RateLimitError, TimeoutError) as e:
+            if attempt == max_attempts - 1:
+                raise
+            wait_time = 2 ** attempt
+            print(f"⚠️  API 오류 (시도 {attempt + 1}/{max_attempts}): {type(e).__name__}")
+            print(f"   {wait_time}초 후 재시도...")
+            time.sleep(wait_time)
+
 
 

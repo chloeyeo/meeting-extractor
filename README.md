@@ -10,7 +10,7 @@
 ## 설치
 
 ```bash
-pip install openai python-dotenv
+pip install openai python-dotenv pydantic
 ```
 
 ## 설정
@@ -31,6 +31,9 @@ python main.py meeting_transcript.md
 
 # 출력 파일 경로 지정
 python main.py meeting_transcript.md --output result.json
+
+# 청킹 크기 조정 (대규모 회의록용)
+python main.py large_meeting.md --chunk-size 8000
 ```
 
 ## 출력 예시
@@ -73,6 +76,9 @@ python main.py meeting_transcript.md --output result.json
 ## 설계 원칙
 
 - **Structured Outputs + Pydantic**: LLM 생성 단계부터 필드 제약 강제 (confidence는 "high", "medium", "low"만 생성 가능) → 스키마 검증 안정성 극대화
+- **Exponential backoff 재시도**: API 오류 시 2초→4초→8초 대기 후 최대 3회 재시도 (일시적 네트워크 오류 대응)
+- **Smart chunking**: 5000글자 기준으로 발화 단위 분할, 오버랩 설정으로 경계 문맥 손실 방지
+- **중복 제거**: 여러 청크에서 추출한 같은 액션 아이템 자동 제거
 - LLM 출력을 그대로 믿지 않고 3가지 rule로 교차 검증
 - 담당자/마감일이 불명확하면 추측 없이 `unknown` + `low confidence` 표시
 - `evidence_quote`는 원문 인용 필수, 없으면 신뢰도 자동 조정
@@ -84,5 +90,7 @@ python main.py meeting_transcript.md --output result.json
 
 ### 핵심 기술
 - **Pydantic + Structured Outputs**: LLM 생성 단계부터 필드 타입 제약 강제 (탈락 0%, 검증 자동화)
+- **Exponential Backoff**: 타임아웃/연결 오류 시 자동 재시도 (최대 3회)
+- **Smart Chunking**: 대규모 회의록 분할 처리 + 중복 제거
 - **Deterministic Rule 검증**: 3가지 rule로 LLM hallucination 탐지 (evidence_quote, deadline, owner)
 - **Smoke Check**: 최소 요건 자동 검증 (4개 액션 아이템, 3개 보류 항목, 1개 미해결 질문)

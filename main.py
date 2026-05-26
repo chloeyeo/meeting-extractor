@@ -6,11 +6,106 @@ Usage: python main.py <meeting_transcript.md> [--output output.json]
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
+# Windows 환경에서 UTF-8 출력 지원
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
 from extractor import extract_action_items
 from validator import validate_with_rules
+
+
+def chunk_transcript_by_speaker(
+    transcript: str, chunk_size: int = 5000, overlap: int = 500
+) -> list[str]:
+    """
+    발화자 기준으로 회의록을 청크로 분할합니다.
+    청크 경계에서 문장이 잘리지 않도록 오버랩을 설정합니다.
+
+    Args:
+        transcript: 전체 회의록
+        chunk_size: 각 청크의 목표 크기 (글자)
+        overlap: 청크 간 오버랩 크기
+
+    Returns:
+        청크 목록
+    """
+    if len(transcript) <= chunk_size:
+        return [transcript]
+
+    chunks = []
+    lines = transcript.split("\n")
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > chunk_size and current_chunk:
+            chunks.append(current_chunk)
+            # 오버랩: 이전 청크의 마지막 일부를 다음 청크에 포함
+            if overlap > 0:
+                lines_in_chunk = current_chunk.split("\n")
+                overlap_lines = "\n".join(lines_in_chunk[-3:])  # 마지막 3줄
+                current_chunk = overlap_lines + "\n" + line
+            else:
+                current_chunk = line
+        else:
+            current_chunk += ("\n" if current_chunk else "") + line
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def deduplicate_items(items: list, key_fields: list[str]) -> list:
+    """같은 내용의 항목 중복 제거."""
+    seen = set()
+    deduplicated = []
+    for item in items:
+        key = tuple(item.get(field, "") for field in key_fields)
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(item)
+    return deduplicated
+
+
+def merge_results(results_list: list[dict]) -> dict:
+    """
+    여러 청크에서 추출한 결과를 통합하고 중복을 제거합니다.
+
+    Args:
+        results_list: extract_action_items() 결과 목록
+
+    Returns:
+        통합된 결과
+    """
+    merged = {"action_items": [], "deferred_items": [], "open_questions": []}
+
+    # 액션 아이템 통합 (task, owner, deadline로 중복 제거)
+    all_action_items = []
+    for result in results_list:
+        all_action_items.extend(result.get("action_items", []))
+    merged["action_items"] = deduplicate_items(
+        all_action_items, ["task", "owner", "deadline"]
+    )
+
+    # 보류 항목 통합 (item으로 중복 제거)
+    all_deferred = []
+    for result in results_list:
+        all_deferred.extend(result.get("deferred_items", []))
+    merged["deferred_items"] = deduplicate_items(all_deferred, ["item"])
+
+    # 미해결 질문 통합 (question으로 중복 제거)
+    all_questions = []
+    for result in results_list:
+        all_questions.extend(result.get("open_questions", []))
+    merged["open_questions"] = deduplicate_items(all_questions, ["question"])
+
+    return merged
+
 
 
 def print_section(title: str, char: str = "="):
@@ -74,6 +169,12 @@ def main():
         default=None,
         help="JSON 결과 저장 경로 (예: output.json)",
     )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=5000,
+        help="청크 크기 (글자, 기본값: 5000)",
+    )
     args = parser.parse_args()
 
     transcript_path = Path(args.transcript)
@@ -84,24 +185,37 @@ def main():
     transcript = transcript_path.read_text(encoding="utf-8")
 
     print(f"\n📄 회의록 로드 완료: {transcript_path} ({len(transcript)} 글자)")
+
+    # 청킹 필요 여부 판단
+    chunks = chunk_transcript_by_speaker(transcript, chunk_size=args.chunk_size)
+    if len(chunks) > 1:
+        print(f"📋 대규모 회의록 감지: {len(chunks)}개 청크로 분할 처리")
+
     print("🤖 LLM 분석 중...")
 
-    # Step 1: LLM 추출
-    try:
-        result = extract_action_items(transcript)
-    except Exception as e:
-        print(f"\n❌ LLM 호출 실패: {e}", file=sys.stderr)
-        print("OPENAI_API_KEY가 설정되어 있는지 확인해주세요.", file=sys.stderr)
-        sys.exit(1)
+    # Step 1: 청크별 LLM 추출
+    results_list = []
+    for i, chunk in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            print(f"   [{i}/{len(chunks)}] 청크 처리 중...")
+        try:
+            result = extract_action_items(chunk)
+            results_list.append(result)
+        except Exception as e:
+            print(f"\n❌ LLM 호출 실패 (청크 {i}): {e}", file=sys.stderr)
+            print("OPENAI_API_KEY가 설정되어 있는지 확인해주세요.", file=sys.stderr)
+            sys.exit(1)
 
+    # Step 2: 결과 통합 및 중복 제거
+    result = merge_results(results_list)
     action_items = result.get("action_items", [])
     deferred_items = result.get("deferred_items", [])
     open_questions = result.get("open_questions", [])
 
-    # Step 2: Deterministic rule 검증
+    # Step 3: Deterministic rule 검증
     validation_results = validate_with_rules(transcript, action_items)
 
-    # Step 3: 결과 출력
+    # Step 4: 결과 출력
     print_section("액션 아이템")
     if action_items:
         print_action_items(action_items)

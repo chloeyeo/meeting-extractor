@@ -3,14 +3,14 @@
     {
       "owner": "준호",
       "task": "샘플 쿼리 확인",
-      "deadline": "unknown",
-      "confidence": "low",
+      "deadline": "오늘",
+      "confidence": "high",
       "evidence_quote": "제가 오늘 안에 샘플 쿼리를 확인해보겠습니다.",
       "notes": ""
     },
     {
       "owner": "준호",
-      "task": "금요일 오전까지 백엔드 필터 PR 올리기",
+      "task": "백엔드 필터 PR 올리기",
       "deadline": "금요일 오전",
       "confidence": "high",
       "evidence_quote": "금요일 오전까지 백엔드 필터 PR을 올리겠습니다.",
@@ -36,7 +36,7 @@
       "owner": "도윤",
       "task": "다음 스프린트 후보 목록에 동의어 검색, 익명화된 검색 로그, CS 모드, 금액 범위 검색 기록",
       "deadline": "unknown",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence_quote": "그러면 제가 다음 스프린트 후보 목록에 동의어 검색, 익명화된 검색 로그, CS 모드, 금액 범위 검색을 적어두겠습니다.",
       "notes": "이슈 초안으로 남기겠다고 했으나 마감일이 명확하지 않음"
     }
@@ -54,13 +54,13 @@
     },
     {
       "item": "검색 로그",
-      "reason": "개인정보 이슈로 인해 익명화 설계가 필요",
+      "reason": "개인정보 이슈로 인해 이번 베타에서는 로그를 안 넣기로 결정",
       "evidence_quote": "검색 로그도 필요합니다. 어떤 검색어에서 결과가 0개인지 봐야 다음 개선을 할 수 있어요. 하지만 개인정보 이슈가 있으니까 검색어 원문을 그대로 저장하면 안 됩니다. 저는 이번 베타에서는 로그를 안 넣고, 다음 스프린트에서 익명화 설계를 먼저 하는 게 맞다고 봅니다."
     },
     {
       "item": "금액 범위 검색",
       "reason": "이번 베타에서 제외하기로 결정",
-      "evidence_quote": "그리고 금액 범위 검색은 이번 베타에서 제외합니다. 정확히 일치만 해요."
+      "evidence_quote": "금액 범위 검색은 이번 베타에서 제외합니다. 정확히 일치만 해요."
     },
     {
       "item": "자연어 날짜 검색",
@@ -92,17 +92,17 @@
         },
         "deadline_원문_확인": {
           "passed": true,
-          "detail": "deadline이 unknown으로 명시됨 (검증 불필요)"
+          "detail": "원문에서 키워드 확인됨: ['오늘']"
         },
         "owner_발화자_확인": {
           "passed": true,
           "detail": "발화자 목록에서 확인됨: '준호'"
         }
       },
-      "llm_confidence": "low"
+      "llm_confidence": "high"
     },
     {
-      "task": "금요일 오전까지 백엔드 필터 PR 올리기",
+      "task": "백엔드 필터 PR 올리기",
       "owner": "준호",
       "status": "verified",
       "checks": {
@@ -112,7 +112,7 @@
         },
         "deadline_원문_확인": {
           "passed": true,
-          "detail": "원문에서 키워드 확인됨: ['금요일', '오전']"
+          "detail": "원문에서 키워드 확인됨: ['오전', '금요일']"
         },
         "owner_발화자_확인": {
           "passed": true,
@@ -132,7 +132,7 @@
         },
         "deadline_원문_확인": {
           "passed": true,
-          "detail": "원문에서 키워드 확인됨: ['오후', '목요일']"
+          "detail": "원문에서 키워드 확인됨: ['목요일', '오후']"
         },
         "owner_발화자_확인": {
           "passed": true,
@@ -152,7 +152,7 @@
         },
         "deadline_원문_확인": {
           "passed": true,
-          "detail": "원문에서 키워드 확인됨: ['금요일', '점심']"
+          "detail": "원문에서 키워드 확인됨: ['점심', '금요일']"
         },
         "owner_발화자_확인": {
           "passed": true,
@@ -179,7 +179,7 @@
           "detail": "발화자 목록에서 확인됨: '도윤'"
         }
       },
-      "llm_confidence": "low"
+      "llm_confidence": "medium"
     }
   ],
   "smoke_checks": [

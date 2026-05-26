@@ -3,40 +3,44 @@ extractor.py
 LLM을 사용해 회의록에서 액션 아이템, 보류 항목, 미해결 질문을 추출합니다.
 """
 
-import json
 import os
+from typing import Literal
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
-SCHEMA = {
-    "action_items": [
-        {
-            "owner": "담당자 이름 (불명확하면 'unknown')",
-            "task": "구체적인 할 일",
-            "deadline": "마감일 또는 기간 (불명확하면 'unknown')",
-            "confidence": "high | medium | low",
-            "evidence_quote": "회의록 원문에서 발췌한 근거 문장 (정확히 인용)",
-            "notes": "(선택) 추가 맥락"
-        }
-    ],
-    "deferred_items": [
-        {
-            "item": "보류/제외된 항목",
-            "reason": "제외 이유",
-            "evidence_quote": "회의록 원문에서 발췌한 근거 문장"
-        }
-    ],
-    "open_questions": [
-        {
-            "question": "미해결 질문 또는 애매한 부분",
-            "raised_by": "질문을 제기한 사람",
-            "evidence_quote": "회의록 원문에서 발췌한 근거 문장"
-        }
-    ]
-}
+
+class ActionItem(BaseModel):
+    owner: str = Field(description="담당자 이름 (불명확하면 'unknown')")
+    task: str = Field(description="구체적인 할 일")
+    deadline: str = Field(description="마감일 또는 기간 (불명확하면 'unknown')")
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="high: 담당자/마감일/근거 모두 명확 | medium: 하나 불명확 | low: 둘 다 불명확"
+    )
+    evidence_quote: str = Field(description="회의록 원문에서 발췌한 근거 문장 (정확히 인용)")
+    notes: str = Field(default="", description="(선택) 추가 맥락")
+
+
+class DeferredItem(BaseModel):
+    item: str = Field(description="보류/제외된 항목")
+    reason: str = Field(description="제외 이유")
+    evidence_quote: str = Field(description="회의록 원문에서 발췌한 근거 문장")
+
+
+class OpenQuestion(BaseModel):
+    question: str = Field(description="미해결 질문 또는 애매한 부분")
+    raised_by: str = Field(description="질문을 제기한 사람 (불명확하면 'unknown')")
+    evidence_quote: str = Field(description="회의록 원문에서 발췌한 근거 문장")
+
+
+class ExtractionResult(BaseModel):
+    action_items: list[ActionItem]
+    deferred_items: list[DeferredItem]
+    open_questions: list[OpenQuestion]
+
 
 SYSTEM_PROMPT = """당신은 한국어 회의록을 분석해 액션 아이템을 추출하는 전문가입니다.
 
@@ -49,22 +53,19 @@ SYSTEM_PROMPT = """당신은 한국어 회의록을 분석해 액션 아이템�
 6. confidence 기준:
    - high: 담당자, 마감일, 근거가 모두 명확
    - medium: 담당자 또는 마감일 중 하나가 불명확
-   - low: 둘 다 불명확하거나 근거가 약함
-
-반드시 아래 JSON 스키마 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요."""
+   - low: 둘 다 불명확하거나 근거가 약함"""
 
 USER_PROMPT_TEMPLATE = """다음 회의록을 분석해 액션 아이템, 보류 항목, 미해결 질문을 추출하세요.
-
-출력 스키마:
-{schema}
 
 회의록:
 {transcript}"""
 
 
+
 def extract_action_items(transcript: str) -> dict:
     """
     OpenAI gpt-4o를 사용해 회의록에서 구조화된 정보를 추출합니다.
+    Structured Outputs로 confidence를 물리적으로 제한합니다.
 
     Args:
         transcript: 회의록 전체 텍스트
@@ -73,7 +74,6 @@ def extract_action_items(transcript: str) -> dict:
         action_items, deferred_items, open_questions를 포함한 dict
 
     Raises:
-        ValueError: LLM 응답이 유효한 JSON이 아닌 경우
         Exception: API 호출 실패 시
     """
     api_key = os.getenv("OPENAI_API_KEY")
@@ -85,88 +85,26 @@ def extract_action_items(transcript: str) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    user_prompt = USER_PROMPT_TEMPLATE.format(
-        schema=json.dumps(SCHEMA, ensure_ascii=False, indent=2),
-        transcript=transcript,
-    )
+    user_prompt = USER_PROMPT_TEMPLATE.format(transcript=transcript)
 
-    response = client.chat.completions.create(
+    response = client.beta.chat.completions.parse(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        response_format={"type": "json_object"},
-        temperature=0,  # 결정론적 출력
+        response_format=ExtractionResult,
+        temperature=0,
     )
 
-    raw_output = response.choices[0].message.content
+    parsed_result = response.choices[0].message.parsed
+    if parsed_result is None:
+        raise ValueError("LLM 파싱 실패")
 
-    # 스키마 검증
-    try:
-        parsed = json.loads(raw_output)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM이 유효하지 않은 JSON을 반환했습니다: {e}\n원본: {raw_output}")
-
-    validated = _validate_schema(parsed)
-    return validated
-
-
-def _validate_schema(data: dict) -> dict:
-    """
-    LLM 출력이 예상 스키마를 따르는지 검증하고 정규화합니다.
-    필수 필드가 없으면 기본값으로 채웁니다.
-    """
-    result = {
-        "action_items": [],
-        "deferred_items": [],
-        "open_questions": [],
+    return {
+        "action_items": [item.model_dump() for item in parsed_result.action_items],
+        "deferred_items": [item.model_dump() for item in parsed_result.deferred_items],
+        "open_questions": [item.model_dump() for item in parsed_result.open_questions],
     }
 
-    # action_items 검증
-    for item in data.get("action_items", []):
-        if not isinstance(item, dict):
-            continue
-        validated_item = {
-            "owner": str(item.get("owner", "unknown")).strip() or "unknown",
-            "task": str(item.get("task", "")).strip(),
-            "deadline": str(item.get("deadline", "unknown")).strip() or "unknown",
-            "confidence": item.get("confidence", "low")
-                if item.get("confidence") in ("high", "medium", "low") else "low",
-            "evidence_quote": str(item.get("evidence_quote", "")).strip(),
-            "notes": str(item.get("notes", "")).strip() if item.get("notes") else "",
-        }
-        # task가 비어있으면 건너뜀
-        if not validated_item["task"]:
-            continue
-        # evidence_quote가 없으면 confidence를 low로 강제
-        if not validated_item["evidence_quote"]:
-            validated_item["confidence"] = "low"
-            validated_item["notes"] = (validated_item["notes"] + " [근거 없음 - confidence 강제 low]").strip()
-        result["action_items"].append(validated_item)
 
-    # deferred_items 검증
-    for item in data.get("deferred_items", []):
-        if not isinstance(item, dict):
-            continue
-        validated_item = {
-            "item": str(item.get("item", "")).strip(),
-            "reason": str(item.get("reason", "")).strip(),
-            "evidence_quote": str(item.get("evidence_quote", "")).strip(),
-        }
-        if validated_item["item"]:
-            result["deferred_items"].append(validated_item)
-
-    # open_questions 검증
-    for item in data.get("open_questions", []):
-        if not isinstance(item, dict):
-            continue
-        validated_item = {
-            "question": str(item.get("question", "")).strip(),
-            "raised_by": str(item.get("raised_by", "unknown")).strip() or "unknown",
-            "evidence_quote": str(item.get("evidence_quote", "")).strip(),
-        }
-        if validated_item["question"]:
-            result["open_questions"].append(validated_item)
-
-    return result
